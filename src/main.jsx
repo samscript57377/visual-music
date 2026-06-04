@@ -63,41 +63,22 @@ const themes = {
   }
 };
 
+// ─── Audio engine ────────────────────────────────────────────────────────────
+
 function useAudioEngine() {
   const metricsRef = useRef({
-    level: 0,
-    beat: 0,
-    bass: 0,
-    mids: 0,
-    highs: 0,
-    progress: 0,
-    active: 0
+    level: 0, beat: 0, bass: 0, mids: 0, highs: 0, progress: 0, active: 0,
+    frequencyData: new Uint8Array(64)
   });
   const [state, setState] = useState({
-    ready: false,
-    playing: false,
-    name: "",
-    level: 0,
-    beat: 0,
-    bass: 0,
-    mids: 0,
-    highs: 0,
-    progress: 0
+    ready: false, playing: false, name: "",
+    level: 0, beat: 0, bass: 0, mids: 0, highs: 0, progress: 0,
+    frequencyData: new Uint8Array(64)
   });
   const refs = useRef({
-    audio: null,
-    context: null,
-    source: null,
-    analyser: null,
-    data: null,
-    objectUrl: "",
-    raf: 0,
-    prevSpectrum: null,
-    fluxMean: 0,
-    fluxVar: 0.002,
-    lastBeatAt: 0,
-    lastFrameAt: 0,
-    lastUiAt: 0
+    audio: null, context: null, source: null, analyser: null,
+    data: null, objectUrl: "", raf: 0, prevSpectrum: null,
+    fluxMean: 0, fluxVar: 0.002, lastBeatAt: 0, lastFrameAt: 0, lastUiAt: 0
   });
 
   const loadFile = async (file) => {
@@ -117,7 +98,7 @@ function useAudioEngine() {
       const context = new AudioContext();
       const analyser = context.createAnalyser();
       analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0.58;
+      analyser.smoothingTimeConstant = 0.55;
       const source = context.createMediaElementSource(audio);
       source.connect(analyser);
       analyser.connect(context.destination);
@@ -127,19 +108,16 @@ function useAudioEngine() {
       refs.current.data = new Uint8Array(analyser.frequencyBinCount);
     }
 
-    audio.onended = () => setState((current) => ({ ...current, playing: false, progress: 0 }));
+    audio.onended = () => setState((c) => ({ ...c, playing: false, progress: 0 }));
     refs.current.prevSpectrum = null;
     refs.current.fluxMean = 0;
     refs.current.fluxVar = 0.002;
     refs.current.lastBeatAt = 0;
-    metricsRef.current = { level: 0, beat: 0, bass: 0, mids: 0, highs: 0, progress: 0, active: 0 };
-    setState((current) => ({
-      ...current,
-      ready: true,
-      playing: false,
-      name: file.name,
-      progress: 0
-    }));
+    metricsRef.current = {
+      level: 0, beat: 0, bass: 0, mids: 0, highs: 0, progress: 0, active: 0,
+      frequencyData: new Uint8Array(64)
+    };
+    setState((c) => ({ ...c, ready: true, playing: false, name: file.name, progress: 0 }));
   };
 
   const toggle = async () => {
@@ -149,11 +127,11 @@ function useAudioEngine() {
     if (audio.paused) {
       await audio.play();
       metricsRef.current = { ...metricsRef.current, active: 1 };
-      setState((current) => ({ ...current, playing: true }));
+      setState((c) => ({ ...c, playing: true }));
     } else {
       audio.pause();
       metricsRef.current = { ...metricsRef.current, active: 0, beat: 0 };
-      setState((current) => ({ ...current, playing: false }));
+      setState((c) => ({ ...c, playing: false }));
     }
   };
 
@@ -165,13 +143,13 @@ function useAudioEngine() {
         const now = performance.now();
         const delta = Math.max(16, now - (refs.current.lastFrameAt || now));
         refs.current.lastFrameAt = now;
-        const bands = splitBands(data, context.sampleRate);
-        const level = bands.level;
-        const bass = bands.bass;
-        const mids = bands.mids;
-        const highs = bands.highs;
-        const flux = spectralFlux(data, refs.current.prevSpectrum, context.sampleRate);
+
+        const sr = context.sampleRate;
+        const bands = splitBands(data, sr);
+        const { level, bass, mids, highs } = bands;
+        const flux = spectralFlux(data, refs.current.prevSpectrum, sr);
         refs.current.prevSpectrum = new Uint8Array(data);
+
         const diff = flux - refs.current.fluxMean;
         refs.current.fluxMean += diff * 0.045;
         refs.current.fluxVar += (diff * diff - refs.current.fluxVar) * 0.045;
@@ -180,14 +158,28 @@ function useAudioEngine() {
         const spaced = now - refs.current.lastBeatAt > 210;
         const isBeat = flux > threshold && enoughEnergy && spaced && !audio.paused;
         if (isBeat) refs.current.lastBeatAt = now;
-        const decay = Math.pow(0.1, delta / 420);
+
+        const decay = Math.pow(0.1, delta / 400);
         const beat = isBeat ? 1 : Math.max(0, metricsRef.current.beat * decay);
         const progress = audio.duration ? audio.currentTime / audio.duration : 0;
         const active = audio.paused ? 0 : 1;
-        metricsRef.current = { level, bass, mids, highs, beat, progress, active };
-        if (now - refs.current.lastUiAt > 120 || isBeat) {
+
+        // Downsample frequency data to 64 bars for waveform display
+        const barCount = 64;
+        const freqData = new Uint8Array(barCount);
+        for (let i = 0; i < barCount; i++) {
+          const start = Math.floor((i / barCount) * (data.length * 0.5));
+          const end = Math.floor(((i + 1) / barCount) * (data.length * 0.5));
+          let sum = 0;
+          for (let j = start; j < end; j++) sum += data[j];
+          freqData[i] = sum / Math.max(1, end - start);
+        }
+
+        metricsRef.current = { level, bass, mids, highs, beat, progress, active, frequencyData: freqData };
+
+        if (now - refs.current.lastUiAt > 80 || isBeat) {
           refs.current.lastUiAt = now;
-          setState((current) => ({ ...current, level, bass, mids, highs, beat, progress }));
+          setState((c) => ({ ...c, level, bass, mids, highs, beat, progress, frequencyData: freqData }));
         }
       }
       refs.current.raf = requestAnimationFrame(tick);
@@ -215,12 +207,8 @@ function bandAverage(data, sampleRate, minHz, maxHz) {
   const nyquist = sampleRate / 2;
   const start = Math.max(0, Math.floor((minHz / nyquist) * data.length));
   const end = Math.min(data.length - 1, Math.ceil((maxHz / nyquist) * data.length));
-  let total = 0;
-  let count = 0;
-  for (let index = start; index <= end; index += 1) {
-    total += data[index];
-    count += 1;
-  }
+  let total = 0, count = 0;
+  for (let i = start; i <= end; i++) { total += data[i]; count++; }
   return count ? total / count / 255 : 0;
 }
 
@@ -229,15 +217,16 @@ function spectralFlux(data, previous, sampleRate) {
   const nyquist = sampleRate / 2;
   const start = Math.max(0, Math.floor((35 / nyquist) * data.length));
   const end = Math.min(data.length - 1, Math.ceil((1850 / nyquist) * data.length));
-  let flux = 0;
-  let count = 0;
-  for (let index = start; index <= end; index += 1) {
-    const rise = data[index] - previous[index];
+  let flux = 0, count = 0;
+  for (let i = start; i <= end; i++) {
+    const rise = data[i] - previous[i];
     if (rise > 0) flux += rise;
-    count += 1;
+    count++;
   }
   return count ? flux / count / 255 : 0;
 }
+
+// ─── 3D stage (enhanced) ─────────────────────────────────────────────────────
 
 function VisualStage({ theme, metricsRef }) {
   const mountRef = useRef(null);
@@ -246,50 +235,68 @@ function VisualStage({ theme, metricsRef }) {
   useEffect(() => {
     const mount = mountRef.current;
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(58, mount.clientWidth / mount.clientHeight, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(56, mount.clientWidth / mount.clientHeight, 0.1, 120);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
-
     camera.position.set(0, 0, 10);
+
     const group = new THREE.Group();
     scene.add(group);
 
-    const light = new THREE.PointLight(0xffffff, 160);
-    light.position.set(2, 4, 8);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+    // Richer lighting setup
+    const keyLight = new THREE.PointLight(0xffffff, 180);
+    keyLight.position.set(3, 5, 8);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.PointLight(0x8080ff, 60);
+    fillLight.position.set(-5, -3, 4);
+    scene.add(fillLight);
+
+    const rimLight = new THREE.PointLight(0xff8040, 40);
+    rimLight.position.set(0, -6, -3);
+    scene.add(rimLight);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
 
     const geometries = [
       new THREE.IcosahedronGeometry(1, 0),
-      new THREE.TorusKnotGeometry(0.72, 0.22, 48, 10),
+      new THREE.TorusKnotGeometry(0.72, 0.22, 52, 10),
       new THREE.BoxGeometry(1.3, 1.3, 1.3),
       new THREE.ConeGeometry(0.8, 1.5, 5),
-      new THREE.TorusGeometry(0.78, 0.18, 10, 32)
+      new THREE.TorusGeometry(0.78, 0.18, 10, 32),
+      new THREE.OctahedronGeometry(0.9, 0),
+      new THREE.TetrahedronGeometry(0.95, 0)
     ];
 
-    const objectCount = window.matchMedia("(max-width: 700px)").matches ? 22 : 30;
-    const objects = Array.from({ length: objectCount }, (_, index) => {
+    const isMobile = window.matchMedia("(max-width: 700px)").matches;
+    const objectCount = isMobile ? 20 : 28;
+
+    const objects = Array.from({ length: objectCount }, (_, i) => {
       const material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(theme.colors[index % theme.colors.length]),
-        roughness: 0.36,
-        metalness: 0.18,
-        emissive: new THREE.Color(theme.colors[(index + 2) % theme.colors.length]),
-        emissiveIntensity: 0.05
+        color: new THREE.Color(theme.colors[i % theme.colors.length]),
+        roughness: 0.3,
+        metalness: 0.28,
+        emissive: new THREE.Color(theme.colors[(i + 2) % theme.colors.length]),
+        emissiveIntensity: 0.08
       });
-      const mesh = new THREE.Mesh(geometries[index % geometries.length], material);
-      const lane = index % 5;
-      mesh.position.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 8, -lane * 1.2);
+      const mesh = new THREE.Mesh(geometries[i % geometries.length], material);
+      const lane = i % 5;
+      mesh.position.set(
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.5) * 9,
+        -lane * 1.4
+      );
       mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-      const size = 0.35 + Math.random() * 0.9;
+      const size = 0.3 + Math.random() * 0.95;
       mesh.scale.setScalar(size);
       group.add(mesh);
       return {
-        mesh,
-        base: size,
-        speed: 0.4 + Math.random() * 1.2,
+        mesh, base: size,
+        speed: 0.4 + Math.random() * 1.3,
         drift: Math.random() * 6.28,
+        driftY: Math.random() * 6.28,
         lane,
         homeX: mesh.position.x,
         homeY: mesh.position.y,
@@ -297,7 +304,32 @@ function VisualStage({ theme, metricsRef }) {
       };
     });
 
-    engineRef.current = { renderer, scene, camera, group, objects, light, clock: new THREE.Clock() };
+    // Particle system
+    const particleCount = isMobile ? 400 : 700;
+    const pGeo = new THREE.BufferGeometry();
+    const pPositions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i++) {
+      pPositions[i * 3]     = (Math.random() - 0.5) * 28;
+      pPositions[i * 3 + 1] = (Math.random() - 0.5) * 18;
+      pPositions[i * 3 + 2] = (Math.random() - 0.5) * 20;
+    }
+    pGeo.setAttribute("position", new THREE.BufferAttribute(pPositions, 3));
+    const pMat = new THREE.PointsMaterial({
+      color: new THREE.Color(theme.colors[0]),
+      size: 0.04,
+      transparent: true,
+      opacity: 0.55,
+      sizeAttenuation: true
+    });
+    const particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
+    engineRef.current = {
+      renderer, scene, camera, group, objects,
+      keyLight, fillLight, rimLight,
+      particles, pPositions, particleCount,
+      clock: new THREE.Clock()
+    };
 
     const resize = () => {
       camera.aspect = mount.clientWidth / mount.clientHeight;
@@ -305,22 +337,29 @@ function VisualStage({ theme, metricsRef }) {
       renderer.setSize(mount.clientWidth, mount.clientHeight);
     };
     window.addEventListener("resize", resize);
+
     return () => {
       window.removeEventListener("resize", resize);
       mount.removeChild(renderer.domElement);
-      geometries.forEach((geometry) => geometry.dispose());
+      geometries.forEach((g) => g.dispose());
       objects.forEach(({ mesh }) => mesh.material.dispose());
+      pGeo.dispose();
+      pMat.dispose();
       renderer.dispose();
     };
   }, []);
 
+  // Re-tint on theme change
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine.objects) return;
-    engine.objects.forEach(({ mesh }, index) => {
-      mesh.material.color.set(theme.colors[index % theme.colors.length]);
-      mesh.material.emissive.set(theme.colors[(index + 2) % theme.colors.length]);
+    engine.objects.forEach(({ mesh }, i) => {
+      mesh.material.color.set(theme.colors[i % theme.colors.length]);
+      mesh.material.emissive.set(theme.colors[(i + 2) % theme.colors.length]);
     });
+    if (engine.particles) {
+      engine.particles.material.color.set(theme.colors[0]);
+    }
   }, [theme]);
 
   useEffect(() => {
@@ -329,26 +368,49 @@ function VisualStage({ theme, metricsRef }) {
       const engine = engineRef.current;
       if (engine.renderer) {
         const time = engine.clock.getElapsedTime();
-        const values = metricsRef.current;
-        const active = values.active;
-        const pulse = (values.beat * 0.35 + values.level * 0.26) * active;
-        engine.camera.position.x = Math.sin(time * 0.18) * (0.12 + values.mids * 0.2 * active);
-        engine.camera.position.y = Math.cos(time * 0.16) * (0.08 + values.highs * 0.12 * active);
-        engine.camera.position.z = 10.4 - values.beat * 0.1 * active + Math.sin(time * 0.1) * 0.08;
+        const v = metricsRef.current;
+        const active = v.active;
+        const pulse = (v.beat * 0.38 + v.level * 0.28) * active;
+
+        // Camera drift
+        engine.camera.position.x = Math.sin(time * 0.17) * (0.1 + v.mids * 0.22 * active);
+        engine.camera.position.y = Math.cos(time * 0.14) * (0.07 + v.highs * 0.14 * active);
+        engine.camera.position.z = 10.5 - v.beat * 0.14 * active + Math.sin(time * 0.09) * 0.1;
         engine.camera.lookAt(0, 0, 0);
-        engine.group.rotation.y = time * (0.03 + values.bass * 0.03 * active) + values.mids * 0.08 * active;
-        engine.group.rotation.x = Math.sin(time * 0.16) * 0.05 + values.highs * 0.035 * active;
-        engine.light.intensity = 95 + values.highs * 90 * active + values.beat * 120 * active;
-        engine.objects.forEach(({ mesh, base, speed, drift, lane, homeX, homeY, homeZ }, index) => {
-          const idle = active ? 1 : 0.28;
-          mesh.rotation.x += (0.0018 * speed + values.highs * 0.004 * active) * idle;
-          mesh.rotation.y += (0.0022 * speed + values.bass * 0.005 * active) * idle;
-          mesh.rotation.z += values.beat * 0.004 * active * (index % 2 ? -1 : 1);
-          mesh.position.x = homeX + Math.cos(time * (0.18 + speed * 0.08) + drift) * (0.08 + values.mids * 0.14 * active);
-          mesh.position.y = homeY + Math.sin(time * speed * 0.38 + drift) * (0.1 + values.highs * 0.13 * active) + values.beat * active * (lane - 2) * 0.025;
-          mesh.position.z = homeZ + Math.sin(time * 0.24 + drift) * (0.14 + values.bass * 0.22 * active);
-          mesh.scale.setScalar(base * (1 + pulse * (index % 3 === 0 ? 0.42 : 0.2)));
+
+        // Group rotation
+        engine.group.rotation.y = time * (0.025 + v.bass * 0.035 * active) + v.mids * 0.09 * active;
+        engine.group.rotation.x = Math.sin(time * 0.14) * 0.06 + v.highs * 0.04 * active;
+
+        // Lights
+        engine.keyLight.intensity = 110 + v.highs * 100 * active + v.beat * 140 * active;
+        engine.fillLight.intensity = 50 + v.bass * 60 * active;
+        engine.rimLight.intensity = 30 + v.mids * 50 * active;
+
+        // Objects
+        engine.objects.forEach(({ mesh, base, speed, drift, driftY, lane, homeX, homeY, homeZ }, i) => {
+          const idle = active ? 1 : 0.25;
+          mesh.rotation.x += (0.0016 * speed + v.highs * 0.005 * active) * idle;
+          mesh.rotation.y += (0.0020 * speed + v.bass * 0.006 * active) * idle;
+          mesh.rotation.z += v.beat * 0.005 * active * (i % 2 ? -1 : 1);
+
+          mesh.position.x = homeX + Math.cos(time * (0.16 + speed * 0.07) + drift) * (0.06 + v.mids * 0.16 * active);
+          mesh.position.y = homeY + Math.sin(time * speed * 0.36 + driftY) * (0.08 + v.highs * 0.14 * active) + v.beat * active * (lane - 2) * 0.028;
+          mesh.position.z = homeZ + Math.sin(time * 0.22 + drift) * (0.12 + v.bass * 0.24 * active);
+
+          // Beat-triggered emissive flash
+          mesh.material.emissiveIntensity = 0.06 + v.beat * 0.45 * active * (i % 3 === 0 ? 1 : 0.5);
+          mesh.scale.setScalar(base * (1 + pulse * (i % 3 === 0 ? 0.45 : 0.22)));
         });
+
+        // Particles drift
+        if (engine.particles) {
+          engine.particles.rotation.y = time * 0.018;
+          engine.particles.rotation.x = Math.sin(time * 0.011) * 0.06;
+          engine.particles.material.opacity = 0.3 + v.level * 0.5 * active + v.beat * 0.3 * active;
+          engine.particles.material.size = 0.04 + v.beat * 0.06 * active;
+        }
+
         engine.renderer.render(engine.scene, engine.camera);
       }
       raf = requestAnimationFrame(render);
@@ -360,32 +422,37 @@ function VisualStage({ theme, metricsRef }) {
   return <div className="stage-3d" ref={mountRef} aria-hidden="true" />;
 }
 
+// ─── Layers ──────────────────────────────────────────────────────────────────
+
+function PlasmaLayer() {
+  return <div className="plasma-layer" aria-hidden="true" />;
+}
+
 function CartoonLayer({ theme }) {
   const shapes = useMemo(
-    () =>
-      Array.from({ length: window.matchMedia("(max-width: 700px)").matches ? 26 : 36 }, (_, index) => ({
-        id: index,
-        kind: theme.cartoon[index % theme.cartoon.length],
-        color: theme.colors[index % theme.colors.length],
-        left: `${(index * 17) % 101}%`,
-        top: `${(index * 29) % 92}%`,
-        size: 18 + ((index * 11) % 54),
-        delay: `${-(index * 0.19).toFixed(2)}s`
-      })),
+    () => Array.from({ length: window.matchMedia("(max-width: 700px)").matches ? 22 : 32 }, (_, i) => ({
+      id: i,
+      kind: theme.cartoon[i % theme.cartoon.length],
+      color: theme.colors[i % theme.colors.length],
+      left: `${(i * 17) % 101}%`,
+      top: `${(i * 29) % 92}%`,
+      size: 16 + ((i * 11) % 58),
+      delay: `${-(i * 0.19).toFixed(2)}s`
+    })),
     [theme]
   );
   return (
     <div className="cartoon-layer">
-      {shapes.map((shape) => (
+      {shapes.map((s) => (
         <i
-          className={`toon toon-${shape.kind}`}
-          key={`${theme.label}-${shape.id}`}
+          className={`toon toon-${s.kind}`}
+          key={`${theme.label}-${s.id}`}
           style={{
-            "--shape-color": shape.color,
-            "--size": `${shape.size}px`,
-            "--left": shape.left,
-            "--top": shape.top,
-            "--delay": shape.delay
+            "--shape-color": s.color,
+            "--size": `${s.size}px`,
+            "--left": s.left,
+            "--top": s.top,
+            "--delay": s.delay
           }}
         />
       ))}
@@ -395,30 +462,29 @@ function CartoonLayer({ theme }) {
 
 function MotionLayer({ theme }) {
   const streaks = useMemo(
-    () =>
-      Array.from({ length: 18 }, (_, index) => ({
-        id: index,
-        color: theme.colors[index % theme.colors.length],
-        top: `${6 + ((index * 11) % 86)}%`,
-        width: `${90 + ((index * 23) % 180)}px`,
-        delay: `${-(index * 0.22).toFixed(2)}s`,
-        speed: `${3.6 + (index % 5) * 0.45}s`
-      })),
+    () => Array.from({ length: 22 }, (_, i) => ({
+      id: i,
+      color: theme.colors[i % theme.colors.length],
+      top: `${4 + ((i * 11) % 90)}%`,
+      width: `${80 + ((i * 23) % 200)}px`,
+      delay: `${-(i * 0.21).toFixed(2)}s`,
+      speed: `${3.2 + (i % 5) * 0.5}s`
+    })),
     [theme]
   );
 
   return (
     <div className="motion-layer" aria-hidden="true">
-      {streaks.map((streak) => (
+      {streaks.map((s) => (
         <i
           className="streak"
-          key={`${theme.label}-${streak.id}`}
+          key={`${theme.label}-${s.id}`}
           style={{
-            "--streak-color": streak.color,
-            "--streak-top": streak.top,
-            "--streak-width": streak.width,
-            "--streak-delay": streak.delay,
-            "--streak-speed": streak.speed
+            "--streak-color": s.color,
+            "--streak-top": s.top,
+            "--streak-width": s.width,
+            "--streak-delay": s.delay,
+            "--streak-speed": s.speed
           }}
         />
       ))}
@@ -428,34 +494,57 @@ function MotionLayer({ theme }) {
 
 function RhythmLayer({ theme }) {
   const tiles = useMemo(
-    () =>
-      Array.from({ length: 28 }, (_, index) => ({
-        id: index,
-        color: theme.colors[(index + 1) % theme.colors.length],
-        left: `${3 + ((index * 13) % 94)}%`,
-        top: `${8 + ((index * 19) % 84)}%`,
-        delay: `${-(index * 0.11).toFixed(2)}s`
-      })),
+    () => Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      color: theme.colors[(i + 1) % theme.colors.length],
+      left: `${3 + ((i * 13) % 94)}%`,
+      top: `${8 + ((i * 19) % 84)}%`,
+      delay: `${-(i * 0.11).toFixed(2)}s`
+    })),
     [theme]
   );
 
   return (
     <div className="rhythm-layer" aria-hidden="true">
-      {tiles.map((tile) => (
+      {tiles.map((t) => (
         <i
           className="rhythm-tile"
-          key={`${theme.label}-${tile.id}`}
+          key={`${theme.label}-${t.id}`}
           style={{
-            "--tile-color": tile.color,
-            "--tile-left": tile.left,
-            "--tile-top": tile.top,
-            "--tile-delay": tile.delay
+            "--tile-color": t.color,
+            "--tile-left": t.left,
+            "--tile-top": t.top,
+            "--tile-delay": t.delay
           }}
         />
       ))}
     </div>
   );
 }
+
+// ─── Waveform bars ────────────────────────────────────────────────────────────
+
+function Waveform({ frequencyData, playing }) {
+  const bars = 48;
+  return (
+    <div className="waveform" aria-hidden="true">
+      {Array.from({ length: bars }, (_, i) => {
+        const dataIndex = Math.floor((i / bars) * frequencyData.length);
+        const raw = frequencyData[dataIndex] ?? 0;
+        const height = playing ? Math.max(6, (raw / 255) * 100) : 6;
+        return (
+          <div
+            key={i}
+            className="waveform-bar"
+            style={{ height: `${height}%` }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
 
 function App() {
   const [themeKey, setThemeKey] = useState("io");
@@ -464,16 +553,17 @@ function App() {
   const theme = themes[themeKey];
   const { audioState, metricsRef, loadFile, toggle } = useAudioEngine();
 
+  // Sync CSS vars every frame
   useEffect(() => {
     let raf = 0;
     const syncCssVars = () => {
       const root = appRef.current;
       if (root) {
-        const values = metricsRef.current;
-        root.style.setProperty("--pulse", values.beat.toFixed(3));
-        root.style.setProperty("--beat", values.beat.toFixed(3));
-        root.style.setProperty("--energy", values.level.toFixed(3));
-        root.style.setProperty("--active", values.active.toFixed(3));
+        const v = metricsRef.current;
+        root.style.setProperty("--pulse", v.beat.toFixed(3));
+        root.style.setProperty("--beat", v.beat.toFixed(3));
+        root.style.setProperty("--energy", v.level.toFixed(3));
+        root.style.setProperty("--active", v.active.toFixed(3));
       }
       raf = requestAnimationFrame(syncCssVars);
     };
@@ -490,19 +580,20 @@ function App() {
         "--bg-b": theme.background[1],
         "--bg-c": theme.background[2],
         "--accent": theme.accent,
-        "--pulse": 0,
-        "--beat": 0,
-        "--energy": 0,
-        "--active": 0
+        "--pulse": 0, "--beat": 0, "--energy": 0, "--active": 0
       }}
     >
       <VisualStage theme={theme} metricsRef={metricsRef} />
+      <PlasmaLayer />
       <RhythmLayer theme={theme} />
       <CartoonLayer theme={theme} />
       <MotionLayer theme={theme} />
       <div className="gradient-field" aria-hidden="true" />
 
-      <section className={panelMinimized ? "control-panel minimized" : "control-panel"} aria-label="Music visualizer controls">
+      <section
+        className={panelMinimized ? "control-panel minimized" : "control-panel"}
+        aria-label="Music visualizer controls"
+      >
         <div className="brand">
           <span className="brand-mark"><Sparkles size={19} /></span>
           <div>
@@ -512,9 +603,8 @@ function App() {
           <button
             className="panel-toggle"
             type="button"
-            onClick={() => setPanelMinimized((value) => !value)}
+            onClick={() => setPanelMinimized((v) => !v)}
             aria-label={panelMinimized ? "Restore controls" : "Minimize controls"}
-            title={panelMinimized ? "Restore controls" : "Minimize controls"}
           >
             {panelMinimized ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
@@ -526,17 +616,27 @@ function App() {
               <label className="upload-button">
                 <Upload size={18} />
                 <span>Upload MP3</span>
-                <input type="file" accept=".mp3,audio/mpeg" onChange={(event) => loadFile(event.target.files?.[0])} />
+                <input
+                  type="file"
+                  accept=".mp3,audio/mpeg"
+                  onChange={(e) => loadFile(e.target.files?.[0])}
+                />
               </label>
               <button className="play-button" onClick={toggle} disabled={!audioState.ready}>
                 {audioState.playing ? <Pause size={20} /> : <Play size={20} />}
               </button>
             </div>
 
+            <Waveform frequencyData={audioState.frequencyData} playing={audioState.playing} />
+
             <div className="theme-grid" aria-label="Theme">
               {Object.entries(themes).map(([key, item]) => (
-                <button className={key === themeKey ? "theme-chip active" : "theme-chip"} key={key} onClick={() => setThemeKey(key)}>
-                  <Cuboid size={15} />
+                <button
+                  className={key === themeKey ? "theme-chip active" : "theme-chip"}
+                  key={key}
+                  onClick={() => setThemeKey(key)}
+                >
+                  <Cuboid size={14} />
                   <span>{item.label}</span>
                 </button>
               ))}
@@ -566,7 +666,9 @@ function Meter({ label, value }) {
         <span>{label}</span>
         <b>{Math.round(value * 100)}</b>
       </div>
-      <span className="meter-bar"><i style={{ width: `${Math.max(3, value * 100)}%` }} /></span>
+      <span className="meter-bar">
+        <i style={{ width: `${Math.max(3, value * 100)}%` }} />
+      </span>
     </div>
   );
 }
