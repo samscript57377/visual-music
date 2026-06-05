@@ -1,3 +1,3 @@
 # visual-music-site
-
-visit (here)[https://samscript57377.github.com/visual-music/]
+> [!IMPORTANT]
+> visit [here](https://samscript57377.github.io/visual-music/)
