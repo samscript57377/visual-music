@@ -17,51 +17,74 @@ body {
 
 button, input { font: inherit; }
 
+/* ── App shell ─────────────────────────────────────────────────────────────── */
+
 .app {
   position: relative;
   min-height: 100vh;
   isolation: isolate;
   overflow: hidden;
   background:
-    radial-gradient(ellipse 60% 55% at 20% 20%, color-mix(in srgb, var(--accent), transparent 62%), transparent),
-    radial-gradient(ellipse 40% 50% at 80% 80%, color-mix(in srgb, var(--accent), transparent 78%), transparent),
-    linear-gradient(125deg, var(--bg-a), var(--bg-b) 48%, var(--bg-c));
+    radial-gradient(ellipse 65% 60% at 18% 18%, color-mix(in srgb, var(--accent), transparent 60%), transparent),
+    radial-gradient(ellipse 45% 55% at 82% 82%, color-mix(in srgb, var(--accent), transparent 76%), transparent),
+    linear-gradient(128deg, var(--bg-a), var(--bg-b) 50%, var(--bg-c));
 }
 
-/* scanline overlay — shrinks grid on beat */
+/* Scanline grid — shrinks and brightens on beat */
 .app::after {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: 4;
-  opacity: calc(0.08 + var(--active) * 0.14);
+  z-index: 7;
+  opacity: calc(0.06 + var(--active) * 0.12);
   background:
-    linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px),
-    linear-gradient(0deg,   rgba(255,255,255,0.05) 1px, transparent 1px);
+    linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px),
+    linear-gradient(0deg,  rgba(255,255,255,0.04) 1px, transparent 1px);
   background-size:
-    calc(80px - var(--beat) * 32px) calc(80px - var(--beat) * 32px);
-  mask-image: radial-gradient(circle at 50% 50%, black 20%, transparent 72%);
+    calc(76px - var(--beat) * 30px)
+    calc(76px - var(--beat) * 30px);
+  mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 20%, transparent 72%);
   pointer-events: none;
-  transform: scale(calc(1 + var(--beat) * 0.04));
-  transition: opacity 240ms ease;
+  transform: scale(calc(1 + var(--beat) * 0.03));
+  transition: opacity 260ms ease;
+  will-change: background-size, transform;
 }
 
-/* vignette that pulses on beat */
+/* Radial vignette that closes in on beats */
 .app::before {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: 6;
+  z-index: 7;
   pointer-events: none;
   background: radial-gradient(
-    ellipse 80% 80% at 50% 50%,
-    transparent 40%,
-    color-mix(in srgb, var(--bg-c), transparent calc(30% + var(--beat) * -20%)) 100%
+    ellipse 85% 85% at 50% 50%,
+    transparent 35%,
+    color-mix(in srgb, var(--bg-c), transparent calc(28% + var(--beat) * -22%)) 100%
   );
-  opacity: calc(0.6 + var(--active) * 0.28 + var(--beat) * 0.2);
+  opacity: calc(0.55 + var(--active) * 0.3 + var(--beat) * 0.18);
 }
 
+/* ── Beat flash overlay ──────────────────────────────────────────────────── */
+
+.beat-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 70% 70% at 50% 50%,
+    rgba(var(--accent-rgb), calc(var(--beat) * 0.13)) 0%,
+    transparent 70%
+  );
+  opacity: var(--active);
+  will-change: opacity;
+}
+
+/* ── Layer stack ─────────────────────────────────────────────────────────── */
+
 .stage-3d,
+.canvas-visualizer,
 .gradient-field,
 .rhythm-layer,
 .cartoon-layer,
@@ -73,11 +96,11 @@ button, input { font: inherit; }
 
 .stage-3d {
   z-index: 1;
-  opacity: calc(0.22 + var(--active) * 0.3);
+  opacity: calc(0.20 + var(--active) * 0.32);
   filter:
-    saturate(calc(0.6 + var(--active) * 0.7))
-    blur(calc((1 - var(--active)) * 0.5px));
-  transition: opacity 300ms ease, filter 300ms ease;
+    saturate(calc(0.55 + var(--active) * 0.8))
+    blur(calc((1 - var(--active)) * 0.6px));
+  transition: opacity 320ms ease, filter 320ms ease;
 }
 
 .stage-3d canvas {
@@ -86,147 +109,114 @@ button, input { font: inherit; }
   height: 100%;
 }
 
-/* animated plasma / aurora layer */
-.plasma-layer {
+/* ── Canvas visualizer (ring + bars + dots) ──────────────────────────────── */
+
+.canvas-visualizer {
   z-index: 2;
   pointer-events: none;
+  opacity: calc(0.15 + var(--active) * 0.75);
   mix-blend-mode: screen;
-  opacity: calc(0.14 + var(--active) * 0.26 + var(--energy) * 0.18);
+  transition: opacity 300ms ease;
+  will-change: opacity;
+}
+
+/* ── Plasma / aurora ─────────────────────────────────────────────────────── */
+
+.plasma-layer {
+  z-index: 3;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: calc(0.10 + var(--active) * 0.22 + var(--energy) * 0.14);
   background:
     conic-gradient(
-      from calc(var(--pulse) * 260deg) at 30% 55%,
+      from calc(var(--pulse) * 280deg) at 28% 58%,
       transparent 0deg,
-      color-mix(in srgb, var(--accent), transparent 18%) 60deg,
-      transparent 130deg
+      color-mix(in srgb, var(--accent), transparent 16%) 65deg,
+      transparent 135deg
     ),
     conic-gradient(
-      from calc(var(--pulse) * -180deg + 120deg) at 72% 38%,
+      from calc(var(--pulse) * -200deg + 130deg) at 74% 36%,
       transparent 0deg,
-      color-mix(in srgb, var(--accent), transparent 24%) 80deg,
-      transparent 160deg
+      color-mix(in srgb, var(--accent), transparent 22%) 85deg,
+      transparent 165deg
     );
-  animation: plasma-drift 14s ease-in-out infinite alternate;
-  transform: scale(calc(1.06 + var(--beat) * 0.08));
-  filter: blur(calc(18px - var(--beat) * 8px));
-  will-change: transform;
+  animation: plasma-drift 16s ease-in-out infinite alternate;
+  transform: scale(calc(1.05 + var(--beat) * 0.09));
+  filter: blur(calc(20px - var(--beat) * 10px));
+  will-change: transform, filter;
 }
 
 @keyframes plasma-drift {
-  0%   { border-radius: 62% 38% 55% 45% / 48% 60% 40% 52%; }
-  33%  { border-radius: 45% 55% 38% 62% / 60% 40% 62% 38%; }
-  66%  { border-radius: 55% 45% 62% 38% / 40% 62% 38% 60%; }
-  100% { border-radius: 38% 62% 45% 55% / 58% 42% 58% 42%; }
+  0%   { border-radius: 64% 36% 54% 46% / 46% 62% 38% 54%; }
+  33%  { border-radius: 44% 56% 36% 64% / 62% 38% 64% 36%; }
+  66%  { border-radius: 56% 44% 64% 36% / 38% 64% 36% 62%; }
+  100% { border-radius: 36% 64% 46% 54% / 60% 40% 60% 40%; }
 }
 
+/* ── Gradient field ──────────────────────────────────────────────────────── */
+
 .gradient-field {
-  z-index: 3;
+  z-index: 4;
   mix-blend-mode: screen;
-  opacity: calc(0.18 + var(--active) * 0.3 + var(--energy) * 0.28);
+  opacity: calc(0.14 + var(--active) * 0.28 + var(--energy) * 0.24);
   background:
     conic-gradient(
-      from calc(var(--pulse) * 180deg + var(--active) * 40deg) at 52% 46%,
+      from calc(var(--pulse) * 190deg + var(--active) * 42deg) at 52% 46%,
       transparent 0deg,
-      color-mix(in srgb, var(--accent), transparent 22%) 80deg,
-      transparent 150deg,
-      rgba(255,255,255,0.12) 230deg,
-      transparent 320deg
+      color-mix(in srgb, var(--accent), transparent 20%) 85deg,
+      transparent 158deg,
+      rgba(255,255,255,0.10) 238deg,
+      transparent 325deg
     ),
-    repeating-linear-gradient(90deg, transparent 0 40px, rgba(255,255,255,0.035) 40px 42px);
-  transform: scale(calc(1 + var(--active) * 0.03 + var(--pulse) * 0.12));
-  filter: saturate(calc(1.1 + var(--energy) * 1.1)) blur(calc(2px - var(--beat) * 1px));
+    repeating-linear-gradient(90deg, transparent 0 38px, rgba(255,255,255,0.028) 38px 40px);
+  transform: scale(calc(1 + var(--active) * 0.025 + var(--pulse) * 0.11));
+  filter: saturate(calc(1.1 + var(--energy) * 1.2)) blur(calc(3px - var(--beat) * 2px));
   pointer-events: none;
   will-change: opacity, transform;
 }
 
+/* ── Rhythm tiles ────────────────────────────────────────────────────────── */
+
 .rhythm-layer {
-  z-index: 4;
-  pointer-events: none;
-  opacity: calc(0.22 + var(--active) * 0.55);
-  transform: scale(calc(1 + var(--beat) * 0.055));
-  transition: opacity 220ms ease;
-}
-
-.cartoon-layer {
   z-index: 5;
   pointer-events: none;
-  opacity: calc(0.42 + var(--active) * 0.44);
-  transform: scale(calc(1 + var(--beat) * 0.06));
-  transition: opacity 220ms ease;
-  will-change: transform;
+  opacity: calc(0.18 + var(--active) * 0.52);
+  transform: scale(calc(1 + var(--beat) * 0.05));
+  transition: opacity 240ms ease;
 }
 
-.motion-layer {
-  z-index: 5;
-  overflow: hidden;
-  pointer-events: none;
-  perspective: 1200px;
-  opacity: calc(0.12 + var(--active) * 0.8);
-  transition: opacity 220ms ease;
-}
-
-/* ── streaks ── */
-.streak {
-  position: absolute;
-  top: var(--streak-top);
-  left: -25vw;
-  width: var(--streak-width);
-  height: 12px;
-  border-radius: 999px;
-  opacity: calc(0.22 + var(--energy) * 0.58);
-  background: linear-gradient(90deg,
-    transparent,
-    color-mix(in srgb, var(--streak-color), transparent 18%),
-    rgba(255,255,255,0.95),
-    color-mix(in srgb, var(--streak-color), transparent 18%),
-    transparent
-  );
-  transform:
-    translate3d(-30vw, 0, 0)
-    rotate(calc(-20deg + var(--beat) * 18deg))
-    scaleX(calc(0.6 + var(--beat) * 1.6));
-  animation: dash-across var(--streak-speed) linear infinite;
-  animation-delay: var(--streak-delay);
-  filter: blur(calc(0.4px + var(--energy) * 2px));
-  will-change: transform, opacity;
-}
-
-/* a second thinner inner streak for depth */
-.streak::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 15%;
-  right: 15%;
-  height: 3px;
-  transform: translateY(-50%);
-  background: rgba(255,255,255,0.9);
-  border-radius: 999px;
-  opacity: calc(0.5 + var(--beat) * 0.5);
-}
-
-/* ── rhythm tiles ── */
 .rhythm-tile {
   position: absolute;
   left: var(--tile-left);
   top: var(--tile-top);
-  width: 40px;
-  height: 40px;
-  border: 2px solid color-mix(in srgb, var(--tile-color), white 28%);
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  border: 2px solid color-mix(in srgb, var(--tile-color), white 26%);
+  border-radius: 9px;
   background: color-mix(in srgb, var(--tile-color), transparent 68%);
   box-shadow:
     0 0 calc(8px + var(--active) * 20px) color-mix(in srgb, var(--tile-color), transparent 42%),
-    inset 0 0 calc(4px + var(--beat) * 12px) color-mix(in srgb, var(--tile-color), transparent 55%);
+    inset 0 0 calc(4px + var(--beat) * 14px) color-mix(in srgb, var(--tile-color), transparent 52%);
   transform:
     translate(-50%, -50%)
-    rotate(calc(45deg + var(--beat) * 32deg))
-    scale(calc(0.5 + var(--active) * 0.28 + var(--beat) * 0.78));
+    rotate(calc(45deg + var(--beat) * 34deg))
+    scale(calc(0.48 + var(--active) * 0.26 + var(--beat) * 0.82));
   animation: tile-breathe 2.8s ease-in-out infinite;
   animation-delay: var(--tile-delay);
   will-change: transform, box-shadow;
 }
 
-/* ── toon shapes ── */
+/* ── Cartoon toon shapes ─────────────────────────────────────────────────── */
+
+.cartoon-layer {
+  z-index: 5;
+  pointer-events: none;
+  opacity: calc(0.38 + var(--active) * 0.44);
+  transform: scale(calc(1 + var(--beat) * 0.055));
+  transition: opacity 240ms ease;
+  will-change: transform;
+}
+
 .toon {
   position: absolute;
   left: var(--left);
@@ -234,15 +224,14 @@ button, input { font: inherit; }
   width: var(--size);
   height: var(--size);
   background: var(--shape-color);
-  opacity: calc(0.55 + var(--active) * 0.32);
+  opacity: calc(0.52 + var(--active) * 0.34);
   filter:
-    drop-shadow(0 6px 18px rgba(0,0,0,0.28))
-    drop-shadow(0 0 calc(var(--active) * 8px) color-mix(in srgb, var(--shape-color), transparent 40%));
+    drop-shadow(0 5px 16px rgba(0,0,0,0.26))
+    drop-shadow(0 0 calc(var(--active) * 10px) color-mix(in srgb, var(--shape-color), transparent 38%));
   transform:
     translate(-50%, -50%)
-    rotate(0deg)
-    scale(calc(0.72 + var(--active) * 0.14 + var(--beat) * 0.92));
-  animation: float-shape 6s ease-in-out infinite;
+    scale(calc(0.70 + var(--active) * 0.15 + var(--beat) * 0.94));
+  animation: float-shape 6.5s ease-in-out infinite;
   animation-delay: var(--delay);
   will-change: transform, filter;
 }
@@ -284,37 +273,85 @@ button, input { font: inherit; }
   background: rgba(255,255,255,0.78);
 }
 
-/* ── control panel ── */
+/* ── Streaks / motion layer ──────────────────────────────────────────────── */
+
+.motion-layer {
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  perspective: 1200px;
+  opacity: calc(0.10 + var(--active) * 0.78);
+  transition: opacity 240ms ease;
+}
+
+.streak {
+  position: absolute;
+  top: var(--streak-top);
+  left: -25vw;
+  width: var(--streak-width);
+  height: 11px;
+  border-radius: 999px;
+  opacity: calc(0.18 + var(--energy) * 0.6);
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--streak-color), transparent 16%),
+    rgba(255,255,255,0.92),
+    color-mix(in srgb, var(--streak-color), transparent 16%),
+    transparent
+  );
+  transform:
+    translate3d(-30vw, 0, 0)
+    rotate(calc(-20deg + var(--beat) * 18deg))
+    scaleX(calc(0.58 + var(--beat) * 1.65));
+  animation: dash-across var(--streak-speed) linear infinite;
+  animation-delay: var(--streak-delay);
+  filter: blur(calc(0.3px + var(--energy) * 1.8px));
+  will-change: transform, opacity;
+}
+
+.streak::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 12%; right: 12%;
+  height: 3px;
+  transform: translateY(-50%);
+  background: rgba(255,255,255,0.88);
+  border-radius: 999px;
+  opacity: calc(0.4 + var(--beat) * 0.6);
+}
+
+/* ── Control panel ───────────────────────────────────────────────────────── */
+
 .control-panel {
   position: fixed;
   left: clamp(16px, 3vw, 38px);
   bottom: clamp(16px, 4vw, 38px);
   z-index: 10;
   display: grid;
-  gap: 16px;
+  gap: 14px;
   width: min(540px, calc(100vw - 32px));
   padding: 20px;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.16);
   border-radius: 14px;
-  background: rgba(8, 10, 20, 0.72);
+  background: rgba(7, 9, 18, 0.74);
   box-shadow:
-    0 32px 80px rgba(0,0,0,0.42),
-    0 0 0 1px rgba(255,255,255,0.06) inset,
-    0 0 calc(24px + var(--beat) * 36px) color-mix(in srgb, var(--accent), transparent 82%);
-  backdrop-filter: blur(22px) saturate(1.4);
-  transition: box-shadow 120ms ease, width 180ms ease, padding 180ms ease;
+    0 28px 72px rgba(0,0,0,0.46),
+    0 0 0 1px rgba(255,255,255,0.05) inset,
+    0 0 calc(20px + var(--beat) * 48px) color-mix(in srgb, var(--accent), transparent 80%);
+  backdrop-filter: blur(20px) saturate(1.5);
+  transition: box-shadow 100ms ease, width 180ms ease, padding 180ms ease;
 }
 
 .control-panel.minimized {
   width: min(420px, calc(100vw - 32px));
   gap: 10px;
   padding: 14px;
-  background: rgba(8, 10, 20, 0.52);
+  background: rgba(7, 9, 18, 0.55);
 }
 
 .brand {
   display: flex;
-  gap: 13px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -329,19 +366,7 @@ button, input { font: inherit; }
   font-size: 0.82rem;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  color: #111827;
-  background: var(--accent);
-  box-shadow: 0 0 0 calc(var(--pulse) * 14px) color-mix(in srgb, var(--accent), transparent 70%);
-  transition: box-shadow 80ms ease;
-}
-
+.brand-mark,
 .play-button {
   display: grid;
   place-items: center;
@@ -350,14 +375,16 @@ button, input { font: inherit; }
   height: 46px;
   border-radius: 50%;
   color: #111827;
+  border: 0;
+  cursor: pointer;
   background: var(--accent);
-  box-shadow: 0 0 0 calc(var(--pulse) * 14px) color-mix(in srgb, var(--accent), transparent 70%);
+  /* ring expands on beat */
+  box-shadow: 0 0 0 calc(var(--pulse) * 14px) rgba(var(--accent-rgb), calc(0.35 - var(--pulse) * 0.3));
   transition: box-shadow 80ms ease;
 }
 
 .is-idle .brand-mark { background: #f8fafc; box-shadow: none; }
 .is-playing .brand-mark { animation: active-mark 900ms ease-in-out infinite; }
-
 .control-panel.minimized .brand-mark { width: 36px; height: 36px; }
 
 .panel-toggle {
@@ -367,10 +394,10 @@ button, input { font: inherit; }
   width: 36px;
   height: 36px;
   margin-left: auto;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.16);
   border-radius: 50%;
-  color: rgba(248,250,252,0.88);
-  background: rgba(255,255,255,0.07);
+  color: rgba(248,250,252,0.86);
+  background: rgba(255,255,255,0.06);
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease;
 }
@@ -383,16 +410,19 @@ h1 {
   font-size: clamp(1.55rem, 4vw, 2.55rem);
   line-height: 0.95;
   letter-spacing: -0.01em;
+  will-change: text-shadow;
 }
 
 p {
   margin-top: 6px;
   max-width: 34rem;
-  color: rgba(248,250,252,0.72);
-  font-size: 0.95rem;
+  color: rgba(248,250,252,0.70);
+  font-size: 0.94rem;
   line-height: 1.35;
   word-break: break-word;
 }
+
+/* ── Controls row ────────────────────────────────────────────────────────── */
 
 .controls-row {
   display: flex;
@@ -400,7 +430,7 @@ p {
   align-items: center;
 }
 
-.upload-button, .play-button, .theme-chip { border: 0; cursor: pointer; }
+.upload-button, .theme-chip { border: 0; cursor: pointer; }
 
 .upload-button {
   display: inline-flex;
@@ -416,6 +446,7 @@ p {
   background: #f8fafc;
   transition: background 140ms ease, transform 80ms ease;
 }
+
 .upload-button:hover { background: #e2e8f0; }
 .upload-button:active { transform: scale(0.97); }
 
@@ -426,39 +457,51 @@ p {
   pointer-events: none;
 }
 
-.play-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.play-button:disabled { cursor: not-allowed; opacity: 0.42; }
 
-/* ── theme grid ── */
+/* ── Waveform canvas ─────────────────────────────────────────────────────── */
+
+.waveform-canvas {
+  display: block;
+  width: 100%;
+  height: 52px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* ── Theme grid ──────────────────────────────────────────────────────────── */
+
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: 7px;
 }
 
 .theme-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 9px;
-  border: 1px solid rgba(255,255,255,0.16);
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid rgba(255,255,255,0.14);
   border-radius: 9px;
-  color: rgba(248,250,252,0.78);
-  background: rgba(255,255,255,0.06);
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  color: rgba(248,250,252,0.76);
+  background: rgba(255,255,255,0.05);
+  font-size: 0.8rem;
+  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
 }
 
 .theme-chip span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.82rem;
 }
 
 .theme-chip:hover:not(.active) {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.11);
+  border-color: rgba(255,255,255,0.26);
 }
 
 .theme-chip.active {
@@ -468,11 +511,12 @@ p {
   font-weight: 700;
 }
 
-/* ── meters ── */
+/* ── Meters ──────────────────────────────────────────────────────────────── */
+
 .meters {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 11px;
 }
 
 .meter { min-width: 0; }
@@ -481,39 +525,40 @@ p {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
-  color: rgba(248,250,252,0.7);
-  font-size: 0.72rem;
+  margin-bottom: 6px;
+  color: rgba(248,250,252,0.68);
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
 }
 
 .meter-label b { color: #f8fafc; font-variant-numeric: tabular-nums; }
 
 .meter-bar, .trackline {
   display: block;
-  height: 9px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.09);
 }
 
 .meter-bar i, .trackline span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent), white 38%));
-  transition: width 60ms linear;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent), white 42%));
+  transition: width 55ms linear;
 }
 
-/* ── track bar ── */
+/* ── Track progress ──────────────────────────────────────────────────────── */
+
 .trackline {
   position: relative;
   height: 20px;
   cursor: default;
 }
 
-.control-panel.minimized .trackline { height: 13px; }
+.control-panel.minimized .trackline { height: 12px; }
 .control-panel.minimized .trackline svg { display: none; }
 
 .trackline svg {
@@ -525,53 +570,31 @@ p {
   color: #101828;
 }
 
-/* ── waveform bars ── */
-.waveform {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 48px;
-  padding: 0 2px;
-}
+/* ── Keyframes ───────────────────────────────────────────────────────────── */
 
-.waveform-bar {
-  flex: 1;
-  min-width: 3px;
-  border-radius: 3px 3px 0 0;
-  background: linear-gradient(
-    to top,
-    var(--accent),
-    color-mix(in srgb, var(--accent), white 50%)
-  );
-  opacity: 0.82;
-  transition: height 55ms ease;
-  transform-origin: bottom;
-}
-
-/* ── animations ── */
 @keyframes float-shape {
-  0%,100% { translate: 0 0; rotate: 0deg; }
-  25%      { translate: 14px -22px; rotate: 72deg; }
-  50%      { translate: 30px -38px; rotate: 180deg; }
-  75%      { translate: 12px -16px; rotate: 252deg; }
+  0%,100% { translate: 0 0;       rotate:   0deg; }
+  25%      { translate: 12px -20px; rotate:  72deg; }
+  50%      { translate: 28px -36px; rotate: 180deg; }
+  75%      { translate: 10px -14px; rotate: 252deg; }
 }
 
 @keyframes dash-across {
-  0% {
-    transform: translate3d(-30vw, 0, -80px) rotate(calc(-20deg + var(--beat)*18deg)) scaleX(calc(0.6 + var(--beat)*1.6));
+  0%   {
+    transform: translate3d(-30vw, 0, -80px) rotate(calc(-20deg + var(--beat)*18deg)) scaleX(calc(0.58 + var(--beat)*1.65));
     opacity: 0;
   }
-  8% { opacity: calc(0.22 + var(--energy)*0.58); }
-  88% { opacity: calc(0.22 + var(--energy)*0.58); }
+  7%   { opacity: calc(0.18 + var(--energy)*0.6); }
+  90%  { opacity: calc(0.18 + var(--energy)*0.6); }
   100% {
-    transform: translate3d(130vw, calc(var(--beat)*-40px), -40px) rotate(calc(22deg + var(--beat)*18deg)) scaleX(calc(0.7 + var(--beat)*1.5));
+    transform: translate3d(132vw, calc(var(--beat)*-42px), -40px) rotate(calc(22deg + var(--beat)*18deg)) scaleX(calc(0.68 + var(--beat)*1.5));
     opacity: 0;
   }
 }
 
 @keyframes tile-breathe {
   0%,100% { translate: 0 0; }
-  50%      { translate: 0 calc(-8px - var(--active)*12px); }
+  50%      { translate: 0 calc(-7px - var(--active)*12px); }
 }
 
 @keyframes active-mark {
@@ -579,17 +602,19 @@ p {
   50%      { transform: scale(1.1); }
 }
 
-/* ── mobile ── */
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+
 @media (max-width: 700px) {
   body { overflow: auto; }
   .control-panel { left: 12px; right: 12px; bottom: 12px; width: auto; }
   .control-panel.minimized { width: auto; }
-  .theme-grid, .meters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .meters { gap: 10px 12px; }
+  .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .meters { grid-template-columns: repeat(3, 1fr); gap: 8px 10px; }
+  .waveform-canvas { height: 40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .toon, .streak, .rhythm-tile, .plasma-layer, .is-playing .brand-mark {
-    animation-duration: 14s;
+    animation-duration: 16s;
   }
 }
