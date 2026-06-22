@@ -9,7 +9,39 @@ import {
 import * as THREE from "three";
 import "./styles.css";
 
-// ─── Query param helpers ──────────────────────────────────────────────────────
+// ─── URL state serialization ──────────────────────────────────────────────────
+//
+// Strategy: large objects (customParams, sceneParams, customThemes, options)
+// are JSON-encoded then base64url-encoded into single compact params:
+//   cp  = custom visualiser params
+//   sp  = scene (3D) params
+//   opt = options object (all booleans)
+//   ct  = custom themes array
+//
+// Simple scalar values (theme, vis, shape, embed, title) stay as plain params
+// for readability. Only non-default values are written to keep URLs short.
+
+function b64Encode(obj) {
+  try {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
+      .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  } catch { return null; }
+}
+
+function b64Decode(str) {
+  try {
+    return JSON.parse(decodeURIComponent(escape(atob(str.replace(/-/g,"+").replace(/_/g,"/")))));
+  } catch { return null; }
+}
+
+// Return only keys that differ from their defaults
+function diffObject(obj, defaults) {
+  const out = {};
+  Object.keys(obj).forEach(k => {
+    if (JSON.stringify(obj[k]) !== JSON.stringify(defaults[k])) out[k] = obj[k];
+  });
+  return out;
+}
 
 function getParams() {
   return new URLSearchParams(window.location.search);
@@ -17,41 +49,68 @@ function getParams() {
 
 function parseEmbedParams() {
   const p = getParams();
+
+  // Decode blob params
+  const cpRaw  = p.has("cp")  ? b64Decode(p.get("cp"))  : null;
+  const spRaw  = p.has("sp")  ? b64Decode(p.get("sp"))  : null;
+  const optRaw = p.has("opt") ? b64Decode(p.get("opt")) : null;
+  const ctRaw  = p.has("ct")  ? b64Decode(p.get("ct"))  : null;
+
   return {
-    embed:    p.get("embed") === "1",
-    theme:    p.get("theme") || null,
-    vis:      p.get("vis")   || null,
-    shape:    p.get("shape") || null,
-    panel:    p.get("panel") !== "0",          // default show
-    accent:   p.get("accent") ? "#"+p.get("accent") : null,
-    title:    p.has("title") ? decodeURIComponent(p.get("title")) : null,
-    // per-option overrides
-    bg3d:     p.has("bg3d")     ? p.get("bg3d")!=="0"     : null,
-    plasma:   p.has("plasma")   ? p.get("plasma")!=="0"   : null,
-    shapes:   p.has("shapes")   ? p.get("shapes")!=="0"   : null,
-    streaks:  p.has("streaks")  ? p.get("streaks")!=="0"  : null,
-    tiles:    p.has("tiles")    ? p.get("tiles")!=="0"    : null,
-    scanlines:p.has("scanlines")? p.get("scanlines")!=="0": null,
-    vignette: p.has("vignette") ? p.get("vignette")!=="0" : null,
+    embed:        p.get("embed") === "1",
+    theme:        p.get("theme") || null,
+    vis:          p.get("vis")   || null,
+    shape:        p.get("shape") || null,
+    panel:        p.get("panel") !== "0",
+    title:        p.has("title") ? decodeURIComponent(p.get("title")) : null,
+    // decoded blobs (null means "use defaults")
+    customParams: cpRaw,
+    sceneParams:  spRaw,
+    options:      optRaw,
+    customThemes: Array.isArray(ctRaw) ? ctRaw : null,
   };
 }
 
-// Build a shareable URL from current app state
-function buildShareUrl({ themeKey, visType, soloShape, options, customAccent, embedTitle, embedMode }) {
+function buildShareUrl({ themeKey, visType, soloShape, options, customParams, sceneParams, customThemes, embedTitle, embedMode }) {
   const base = window.location.origin + window.location.pathname;
   const p = new URLSearchParams();
-  if (themeKey !== "io")        p.set("theme", themeKey);
-  if (visType  !== "cosmic")    p.set("vis",   visType);
+
+  // Scalars — only write if non-default
+  if (themeKey !== "io")     p.set("theme", themeKey);
+  if (visType  !== "cosmic") p.set("vis",   visType);
   if (visType === "solo3d" && soloShape !== "icosahedron") p.set("shape", soloShape);
-  if (customAccent)             p.set("accent", customAccent.replace("#",""));
-  if (embedTitle)               p.set("title",  encodeURIComponent(embedTitle));
-  if (embedMode)                p.set("embed",  "1");
-  // Only write option overrides that differ from default
-  const optKeys = ["bg3d","plasma","shapes","streaks","tiles","scanlines","vignette"];
-  const optDefaults = { bg3d:true,plasma:true,shapes:true,streaks:true,tiles:true,scanlines:true,vignette:true };
-  optKeys.forEach(k => { if (options[k] !== optDefaults[k]) p.set(k, options[k]?"1":"0"); });
+  if (embedTitle)            p.set("title", encodeURIComponent(embedTitle));
+  if (embedMode)             p.set("embed", "1");
+
+  // Custom vis params — only write changed keys
+  const cpDiff = diffObject(customParams, DEFAULT_CUSTOM);
+  if (Object.keys(cpDiff).length > 0) {
+    const enc = b64Encode(cpDiff);
+    if (enc) p.set("cp", enc);
+  }
+
+  // Scene (3D) params — only write changed keys
+  const spDiff = diffObject(sceneParams, DEFAULT_SCENE);
+  if (Object.keys(spDiff).length > 0) {
+    const enc = b64Encode(spDiff);
+    if (enc) p.set("sp", enc);
+  }
+
+  // Options — only write changed booleans
+  const optDiff = diffObject(options, DEFAULT_OPTIONS);
+  if (Object.keys(optDiff).length > 0) {
+    const enc = b64Encode(optDiff);
+    if (enc) p.set("opt", enc);
+  }
+
+  // Custom themes — always write if any exist (recipient needs full definitions)
+  if (customThemes && customThemes.length > 0) {
+    const enc = b64Encode(customThemes);
+    if (enc) p.set("ct", enc);
+  }
+
   const qs = p.toString();
-  return base + (qs ? "?"+qs : "");
+  return base + (qs ? "?" + qs : "");
 }
 
 
@@ -1121,19 +1180,36 @@ function CopyField({ label, value }) {
 function SharePanel({ shareUrl, embedUrl, embedTitle, setEmbedTitle }) {
   const iframeSnippet = `<iframe src="${embedUrl}" width="800" height="500" frameborder="0" allow="autoplay" style="border-radius:12px"></iframe>`;
 
+  // Warn when URL exceeds ~2000 chars (safe browser limit)
+  const shareLen = shareUrl.length;
+  const embedLen = embedUrl.length;
+  const urlWarn = shareLen > 1800;
+
+  // Summarise what's encoded in the URL
+  const paramCount = new URLSearchParams(shareUrl.split("?")[1]||"").size;
+
   return (
     <div className="share-panel">
+      {urlWarn && (
+        <div className="share-warning">
+          ⚠️ URL is getting long ({shareLen} chars). Consider resetting some options to defaults before sharing.
+        </div>
+      )}
+
       <div className="settings-section">
         <p className="settings-section-title">Share link</p>
-        <p className="share-desc">Send this URL to open the visualiser with your current theme and visualiser preset. The recipient can then upload their own audio.</p>
+        <p className="share-desc">
+          Encodes your current theme, visualiser, 3D controls, custom vis settings, options, and any custom themes — the recipient sees exactly what you see.
+          {paramCount > 1 && <span className="share-param-count"> {paramCount} settings encoded.</span>}
+        </p>
         <CopyField label="URL" value={shareUrl}/>
       </div>
 
       <div className="settings-section">
         <p className="settings-section-title">Embed in a webpage</p>
-        <p className="share-desc">Paste this snippet into any HTML page to embed the visualiser. The embed mode hides the settings panel and shows a minimal drop-zone UI.</p>
+        <p className="share-desc">All settings are encoded in the embed URL too. Paste the iframe snippet into any HTML page.</p>
         <div className="share-embed-title-row">
-          <label className="share-embed-title-label" htmlFor="embed-title">Custom title shown in embed</label>
+          <label className="share-embed-title-label" htmlFor="embed-title">Custom title shown in embed bar</label>
           <input
             id="embed-title"
             className="cte-name-input"
@@ -1149,8 +1225,28 @@ function SharePanel({ shareUrl, embedUrl, embedTitle, setEmbedTitle }) {
 
       <div className="settings-section">
         <p className="settings-section-title">Discord</p>
-        <p className="share-desc">Paste the share link into Discord as a message — it will appear as a preview link. Users can click it to open the visualiser in their browser.</p>
+        <p className="share-desc">
+          Paste the share link into Discord — it will show a preview card with your theme name. The link opens the visualiser with all your settings pre-loaded.
+        </p>
         <CopyField label="Discord link" value={shareUrl}/>
+      </div>
+
+      <div className="settings-section">
+        <p className="settings-section-title">What's encoded</p>
+        <div className="share-encoded-list">
+          {[
+            ["Theme & visualiser", "always"],
+            ["All options (toggles)", "if changed from defaults"],
+            ["Custom vis sliders", "if changed from defaults"],
+            ["3D scene controls", "if changed from defaults"],
+            ["Custom themes", "full definitions included"],
+          ].map(([label, note])=>(
+            <div className="share-encoded-row" key={label}>
+              <span className="share-encoded-label">{label}</span>
+              <span className="share-encoded-note">{note}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1352,7 +1448,7 @@ function App(){
   const isEmbed = initParams.embed;
 
   const [themeKey,setThemeKey]=useState(()=>{
-    if(initParams.theme && BUILTIN_THEMES[initParams.theme]) return initParams.theme;
+    if(initParams.theme && (BUILTIN_THEMES[initParams.theme] || initParams.theme.startsWith("custom_"))) return initParams.theme;
     return "io";
   });
   const [panelMinimized,setPanelMinimized]=useState(false);
@@ -1362,19 +1458,20 @@ function App(){
   });
   const [soloShape,setSoloShape]=useState(()=>initParams.shape||"icosahedron");
   const [showSettings,setShowSettings]=useState(false);
-  const [customParams,setCustomParams]=useState({...DEFAULT_CUSTOM});
-  const [options,setOptions]=useState(()=>{
-    const base={...DEFAULT_OPTIONS};
-    // Apply per-option URL overrides
-    ["bg3d","plasma","shapes","streaks","tiles","scanlines","vignette"].forEach(k=>{
-      if(initParams[k]!==null) base[k]=initParams[k];
-    });
-    return base;
-  });
-  const [customThemes,setCustomThemes]=useState([]);
-  const [sceneParams,setSceneParams]=useState({...DEFAULT_SCENE});
+  const [customParams,setCustomParams]=useState(()=>({
+    ...DEFAULT_CUSTOM,
+    ...(initParams.customParams||{}),
+  }));
+  const [options,setOptions]=useState(()=>({
+    ...DEFAULT_OPTIONS,
+    ...(initParams.options||{}),
+  }));
+  const [customThemes,setCustomThemes]=useState(()=>initParams.customThemes||[]);
+  const [sceneParams,setSceneParams]=useState(()=>({
+    ...DEFAULT_SCENE,
+    ...(initParams.sceneParams||{}),
+  }));
   const [embedTitle,setEmbedTitle]=useState(initParams.title||"");
-  const [embedMode,setEmbedMode]=useState(false); // toggle for share URL generation
 
   const appRef=useRef(null), titleRef=useRef(null);
 
@@ -1393,8 +1490,8 @@ function App(){
   const sceneParamsRef=useRef(sceneParams); sceneParamsRef.current=sceneParams;
 
   // Share URLs — recomputed whenever relevant state changes
-  const shareUrl = useMemo(()=>buildShareUrl({themeKey,visType,soloShape,options,embedTitle:null,embedMode:false}),[themeKey,visType,soloShape,options]);
-  const embedUrl  = useMemo(()=>buildShareUrl({themeKey,visType,soloShape,options,embedTitle,embedMode:true}),[themeKey,visType,soloShape,options,embedTitle]);
+  const shareUrl = useMemo(()=>buildShareUrl({themeKey,visType,soloShape,options,customParams,sceneParams,customThemes,embedTitle:null,embedMode:false}),[themeKey,visType,soloShape,options,customParams,sceneParams,customThemes]);
+  const embedUrl  = useMemo(()=>buildShareUrl({themeKey,visType,soloShape,options,customParams,sceneParams,customThemes,embedTitle,embedMode:true}),[themeKey,visType,soloShape,options,customParams,sceneParams,customThemes,embedTitle]);
 
   const {audioState,metricsRef,loadFile,toggle,engineRefs}=useAudioEngine();
   const renderMetricsRef=useRef(metricsRef.current);
